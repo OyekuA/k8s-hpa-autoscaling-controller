@@ -11,6 +11,10 @@ except ValueError:
     raise ValueError(
         f"PRIME_LIMIT must be a valid integer, got {_raw!r}"
     ) from None
+if PRIME_LIMIT < 2:
+    raise ValueError(
+        f"PRIME_LIMIT must be an integer >= 2, got {_raw!r}"
+    ) from None
 
 
 def is_prime(n: int) -> bool:
