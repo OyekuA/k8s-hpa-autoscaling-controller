@@ -15,7 +15,7 @@ IS_UNKNOWN   := $(if $(UNAME_S),0,1)
 
 .DEFAULT_GOAL := help
 
-.PHONY: check-prereqs cluster teardown clean load-image deploy status port-forward load-test demo help
+.PHONY: check-prereqs cluster teardown clean load-image deploy status verify-metrics port-forward load-test demo help
 
 help:
 	@echo "k8s HPA autoscaling project - Makefile targets:"
@@ -26,6 +26,7 @@ help:
 	@echo "  load-image      Load the fastapi-hpa image into the '$(CLUSTER_NAME)' kind cluster"
 	@echo "  deploy          Build + load image, then apply Metrics Server, Prometheus, app, and HPA with readiness gates"
 	@echo "  status          Show pods, services, and HPA in a compact wide view"
+	@echo "  verify-metrics  Verify the metrics pipeline (Metrics Server -> HPA) with pass/fail checks"
 	@echo "  port-forward    Forward localhost:8080 to the FastAPI service for ad-hoc testing"
 	@echo "  load-test       Run the automated load test: port-forward, pod logging, Locust headless 5m, CSV capture"
 	@echo "  demo            Full demo: deploy, then load-test"
@@ -130,6 +131,53 @@ deploy: check-prereqs
 
 status:
 	@kubectl get pods,svc,hpa -o wide
+
+verify-metrics:
+	@failures=0; \
+	cpu_usage() { \
+		kubectl top pods 2>/dev/null | awk '/^fastapi-app/ { v = $$2; if (v ~ /m$$/) { sub(/m$$/, "", v) } else { v = v * 1000 } total += v } END { printf "%.0f", total }'; \
+	}; \
+	printf "Check 1: Metrics Server pods Running\n"; \
+	if kubectl get pods -n kube-system -l k8s-app=metrics-server --no-headers 2>/dev/null | awk 'NR && $$3 != "Running" { bad = 1 } END { exit (NR == 0 || bad) }'; then \
+		printf "[PASS] metrics-server pods Running\n"; \
+	else \
+		printf "[FAIL] metrics-server pods not Running - run: kubectl get pods -n kube-system -l k8s-app=metrics-server\n"; \
+		failures=1; \
+	fi; \
+	printf "Check 2: kubectl top pods returns data\n"; \
+	if kubectl top pods 2>/dev/null | awk 'NR > 1 && NF >= 3 { found = 1 } END { exit !found }'; then \
+		printf "[PASS] kubectl top pods returned data\n"; \
+	else \
+		printf "[FAIL] kubectl top pods returned no data - Metrics Server not scraping, see TROUBLESHOOTING.md\n"; \
+		failures=1; \
+	fi; \
+	printf "Check 3: HPA shows a numeric CPU percentage\n"; \
+	if kubectl get hpa --no-headers 2>/dev/null | awk 'NR == 1 && $$3 ~ /^[0-9]/ { found = 1 } END { exit !found }'; then \
+		printf "[PASS] HPA CPU target numeric\n"; \
+	else \
+		printf "[FAIL] HPA shows <unknown> - see TROUBLESHOOTING.md\n"; \
+		failures=1; \
+	fi; \
+	printf "Check 4: /compute-heavy raises pod CPU usage\n"; \
+	before=$$(cpu_usage); \
+	code=$$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/compute-heavy); \
+	if [ "$$code" = "200" ]; then \
+		after=$$(cpu_usage); \
+		if [ -n "$$before" ] && [ -n "$$after" ] && [ "$$after" -gt "$$before" ] 2>/dev/null; then \
+			printf "[PASS] CPU rose from %sm to %sm after /compute-heavy\n" "$$before" "$$after"; \
+		else \
+			printf "[FAIL] CPU did not rise (%sm -> %sm) - increase PRIME_LIMIT, see TROUBLESHOOTING.md\n" "$$before" "$$after"; \
+			failures=1; \
+		fi; \
+	else \
+		printf "[FAIL] curl http://localhost:8080/compute-heavy failed - is 'make port-forward' running?\n"; \
+		failures=1; \
+	fi; \
+	if [ "$$failures" = "1" ]; then \
+		echo "verify-metrics: FAILED - see TROUBLESHOOTING.md for diagnostics"; \
+		exit 1; \
+	fi; \
+	echo "verify-metrics: ALL CHECKS PASSED - ready for 'make load-test'"
 
 port-forward:
 	@kubectl port-forward svc/fastapi-app 8080:80
