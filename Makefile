@@ -15,7 +15,7 @@ IS_UNKNOWN   := $(if $(UNAME_S),0,1)
 
 .DEFAULT_GOAL := help
 
-.PHONY: check-prereqs cluster teardown clean help
+.PHONY: check-prereqs cluster teardown clean load-image deploy status port-forward help
 
 help:
 	@echo "k8s HPA autoscaling project - Makefile targets:"
@@ -23,6 +23,10 @@ help:
 	@echo "  cluster         Create the '$(CLUSTER_NAME)' kind cluster from $(KIND_CONFIG)"
 	@echo "  teardown        Prompt, then destroy the cluster"
 	@echo "  clean           Delete only app + HPA resources (keep cluster, Metrics Server, Prometheus)"
+	@echo "  load-image      Load the fastapi-hpa image into the '$(CLUSTER_NAME)' kind cluster"
+	@echo "  deploy          Build + load image, then apply Metrics Server, Prometheus, app, and HPA with readiness gates"
+	@echo "  status          Show pods, services, and HPA in a compact wide view"
+	@echo "  port-forward    Forward localhost:8080 to the FastAPI service for ad-hoc testing"
 
 check-prereqs:
 	@echo "Checking prerequisites for the k8s HPA demo..."
@@ -107,3 +111,23 @@ teardown:
 clean:
 	@kubectl delete --ignore-not-found -f k8s/app/ -f k8s/hpa/
 	@echo "Cleaned app and HPA resources. Metrics Server and Prometheus remain."
+
+load-image:
+	@kind load docker-image fastapi-hpa:latest --name "$(CLUSTER_NAME)"
+
+deploy: check-prereqs
+	@docker build -t fastapi-hpa:latest .
+	@kind load docker-image fastapi-hpa:latest --name "$(CLUSTER_NAME)"
+	@kubectl apply -f k8s/metrics-server/
+	@kubectl wait --for=condition=ready pod -l k8s-app=metrics-server -n kube-system --timeout=120s
+	@kubectl apply -f k8s/prometheus/
+	@kubectl apply -f k8s/app/
+	@kubectl wait --for=condition=ready pod -l app=fastapi-app --timeout=120s
+	@kubectl apply -f k8s/hpa/
+	@echo "Deploy complete"
+
+status:
+	@kubectl get pods,svc,hpa -o wide
+
+port-forward:
+	@kubectl port-forward svc/fastapi-app 8080:80
