@@ -15,7 +15,7 @@ IS_UNKNOWN   := $(if $(UNAME_S),0,1)
 
 .DEFAULT_GOAL := help
 
-.PHONY: check-prereqs cluster teardown clean load-image deploy status port-forward help
+.PHONY: check-prereqs cluster teardown clean load-image deploy status port-forward load-test demo help
 
 help:
 	@echo "k8s HPA autoscaling project - Makefile targets:"
@@ -27,6 +27,8 @@ help:
 	@echo "  deploy          Build + load image, then apply Metrics Server, Prometheus, app, and HPA with readiness gates"
 	@echo "  status          Show pods, services, and HPA in a compact wide view"
 	@echo "  port-forward    Forward localhost:8080 to the FastAPI service for ad-hoc testing"
+	@echo "  load-test       Run the automated load test: port-forward, pod logging, Locust headless 5m, CSV capture"
+	@echo "  demo            Full demo: deploy, then load-test"
 
 check-prereqs:
 	@echo "Checking prerequisites for the k8s HPA demo..."
@@ -131,3 +133,31 @@ status:
 
 port-forward:
 	@kubectl port-forward svc/fastapi-app 8080:80
+
+load-test:
+	@kubectl port-forward svc/fastapi-app 8080:80 > load-test-pods.log 2>&1 & echo $$! > /tmp/pf.pid; \
+	kubectl get pods -w >> load-test-pods.log 2>&1 & echo $$! > /tmp/log.pid; \
+	cleanup() { \
+		for pidfile in /tmp/pf.pid /tmp/log.pid; do \
+			if [ -f "$$pidfile" ]; then \
+				kill "$$(cat "$$pidfile")" 2>/dev/null; \
+				rm -f "$$pidfile"; \
+			fi; \
+		done; \
+	}; \
+	trap cleanup EXIT; \
+	locust -f locustfile.py --headless -u 200 -r 20 --run-time 5m --csv load-test-results --host http://localhost:8080; \
+	rc=$$?; \
+	cleanup; \
+	if [ "$$rc" -eq 0 ]; then \
+		echo "=== LOAD TEST COMPLETE ==="; \
+		echo "Summary: load-test-results_stats.csv, load-test-results_stats_history.csv"; \
+		echo "Pod timeline: load-test-pods.log"; \
+	else \
+		echo "Load test failed (locust exit $$rc) - see locust output above" >&2; \
+		exit $$rc; \
+	fi
+
+demo:
+	@$(MAKE) deploy
+	@$(MAKE) load-test
