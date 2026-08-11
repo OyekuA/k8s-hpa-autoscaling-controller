@@ -5,7 +5,7 @@ WORKDIR /app
 COPY app/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app /app
+COPY app /app/app
 
 EXPOSE 80
 

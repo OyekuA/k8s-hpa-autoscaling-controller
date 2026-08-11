@@ -152,7 +152,7 @@ verify-metrics:
 		failures=1; \
 	fi; \
 	printf "Check 3: HPA shows a numeric CPU percentage\n"; \
-	if kubectl get hpa --no-headers 2>/dev/null | awk 'NR == 1 && $$3 ~ /^[0-9]/ { found = 1 } END { exit !found }'; then \
+	if kubectl get hpa --no-headers 2>/dev/null | awk 'NR == 1 && ($$3 ~ /^[0-9]/ || ($$3 == "cpu:" && $$4 ~ /^[0-9]/)) { found = 1 } END { exit !found }'; then \
 		printf "[PASS] HPA CPU target numeric\n"; \
 	else \
 		printf "[FAIL] HPA shows <unknown> - see TROUBLESHOOTING.md\n"; \
@@ -160,7 +160,12 @@ verify-metrics:
 	fi; \
 	printf "Check 4: /compute-heavy raises pod CPU usage\n"; \
 	before=$$(cpu_usage); \
-	code=$$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/compute-heavy); \
+	code=200; i=0; \
+	while [ "$$i" -lt 10 ]; do \
+		code=$$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/compute-heavy); \
+		i=$$((i+1)); \
+	done; \
+	sleep 5; \
 	if [ "$$code" = "200" ]; then \
 		after=$$(cpu_usage); \
 		if [ -n "$$before" ] && [ -n "$$after" ] && [ "$$after" -gt "$$before" ] 2>/dev/null; then \
@@ -184,7 +189,7 @@ port-forward:
 
 load-test:
 	@kubectl port-forward svc/fastapi-app 8080:80 > load-test-pods.log 2>&1 & echo $$! > /tmp/pf.pid; \
-	kubectl get pods -w >> load-test-pods.log 2>&1 & echo $$! > /tmp/log.pid; \
+	kubectl get pods -w -o name | stdbuf -oL >> load-test-pods.log 2>&1 & echo $$! > /tmp/log.pid; \
 	cleanup() { \
 		for pidfile in /tmp/pf.pid /tmp/log.pid; do \
 			if [ -f "$$pidfile" ]; then \
