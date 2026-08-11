@@ -18,7 +18,7 @@ make verify-metrics
 make load-test
 ```
 
-Three evidence files appear in the repo root: `load-test-results_stats.csv`, `load-test-results_stats_history.csv`, and `load-test-pods.log`. The terminal prints `=== LOAD TEST COMPLETE ===` when the run finishes. Port-forward the Prometheus service (`kubectl port-forward svc/prometheus 9090:9090`), run the query in Methodology, and save the graph to `docs/screenshots/prometheus-cpu.png`. Also capture the pod timeline from `load-test-pods.log` into `docs/screenshots/pod-scaling.png`.
+Three evidence files appear in the repo root: `load-test-results_stats.csv`, `load-test-results_stats_history.csv`, and `load-test-pods.log`. The terminal prints `=== LOAD TEST COMPLETE ===` when the run finishes. Port-forward the Prometheus service (`kubectl port-forward svc/prometheus 9090:9090`), run the query in Methodology, and save the graph to `docs/screenshots/prometheus-cpu.jpg`. Also capture the pod timeline from `load-test-pods.log` into `docs/screenshots/pod-scaling.jpg`.
 
 Tear down once the evidence is saved:
 
@@ -118,13 +118,13 @@ The evidence below is produced by a single complete run of Methodology. Screensh
 
 `load-test-pods.log` carries the pod count minute by minute. The expected shape is mechanical: one pod at idle, additions as utilization crosses 60%, a plateau at five replicas while load holds, then the slow one-pod-per-30-second descent after the run ends and the stabilization window lapses.
 
-![Pod scaling timeline: kubectl get pods -w capture showing the 1 to 5 to 1 sequence](docs/screenshots/pod-scaling.png)
+![Pod scaling timeline: kubectl get pods -w capture showing the 1 to 5 to 1 sequence](docs/screenshots/pod-scaling.jpg)
 
 ### CPU utilization
 
 Prometheus renders the Methodology query over the run window. The series shows the CPU spike climbing as users ramp, the per-pod drop as replicas multiply, and the return to idle after load stops. The HPA target column in `kubectl get hpa` moves in the same direction in utilization terms.
 
-![Prometheus CPU series: rate of container_cpu_usage_seconds_total across the load window](docs/screenshots/prometheus-cpu.png)
+![Prometheus CPU series: rate of container_cpu_usage_seconds_total across the load window](docs/screenshots/prometheus-cpu.jpg)
 
 ### Latency
 
